@@ -49,7 +49,7 @@ data['Churn?'] = data['Churn?'].apply(lambda x: x.split('.')[0])
 y = le.fit_transform(data['Churn?'])
 data.drop('Churn?', axis=1, inplace=True)
 
-state = pd.get_dummies(le.fit_transform(data['State']))
+state = pd.get_dummies(data['State'])
 data.drop('State', axis=1, inplace=True)
 X = pd.concat([data, state], axis=1).as_matrix()
 
