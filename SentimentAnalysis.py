@@ -41,7 +41,7 @@ data_resample.drop(['ID','Date','NA','Author'], inplace=True, axis=1)
 pos_resample = data_resample[data_resample['Sentiment'] == 4]
 neg_resample = data_resample[data_resample['Sentiment'] == 0]
 
-n_resamples = 15000
+n_resamples = 13000
 pos_resample = pos_resample.iloc[np.random.choice(len(pos_resample), size=n_resamples)]
 neg_resample = neg_resample.iloc[np.random.choice(len(neg_resample), size=n_resamples)]
 
@@ -72,21 +72,21 @@ def clean_tweet(tweet, count_total):
     tweet = re.sub('((www\S+)|(http\S+))', 'urlsite', tweet)
     tweet = re.sub(r'\d+', 'num', tweet)
     
-    sys.stdout.flush()
-    sys.stdout.write('\r{}/{}'.format(count, count_total))
-        #sys.stdout.write('\rCompleted: {:.0f}%'.format(count/len(data['Tweet'])*100))
+    if count % (count_total/100) == 0:
+        sys.stdout.flush()
+        sys.stdout.write('\r{:.0f}%'.format(count/count_total*100))
     count += 1
     return tweet
 
 data_original['Clean Tweet'] = data_original['Tweet'].apply(lambda x: clean_tweet(x, len(data_original)))
-data_resample['Clean Tweet'] = data_resample['Tweet'].apply(lambda x: clean_tweet(x, len(data_resample) + len(data_original)))
+data_resample['Clean Tweet'] = data_resample['Tweet'].apply(lambda x: clean_tweet(x, len(data_resample)))
 data_resample = shuffle(data_resample)
-X_resample = data_resample['Clean Tweet']
+X_resample = data_resample['Clean Tweet'].as_matrix()
 y_resample = data_resample['Sentiment'].as_matrix()
 
 #%% 
 # Using original data set as additional test set
-X_original = data_original['Clean Tweet']
+X_original = data_original['Clean Tweet'].as_matrix()
 y_original = data_original['Sentiment'].as_matrix()
 
 #%%
@@ -95,11 +95,13 @@ t0 = datetime.now()
 cv = CountVectorizer()
 
 kfold = StratifiedKFold(n_splits=10, shuffle=True, random_state=99)
+n_fold = 0
 
 n_classifier = 2
 
 for train, valid in kfold.split(X_resample, y_resample):
     # Separate our samples
+    n_fold += 1
     X_train = X_resample[train]
     y_train = y_resample[train]
     X_valid = X_resample[valid]
@@ -140,8 +142,9 @@ for train, valid in kfold.split(X_resample, y_resample):
     fpr_original, tpr_original, _ = roc_curve(y_test, model.predict_proba(X_test)[:,1])
     roc_auc_original = auc(fpr_original, tpr_original)
     
-    print('Resampling AUC Score: {:.3f}, Original AUC Score: {:.3f}'.format(roc_auc_resample, roc_auc_original))
-    print('Resampling Accuracy: {:.1f}%, Original Accuracy: {:.1f}%'.format(np.mean(predictions_resample == y_valid)*100, np.mean(predictions_original == y_test)*100))   
+    print('__________________________________________________________________')
+    print('k-{}:\tResampling AUC Score: {:.3f}\t Original AUC Score: {:.3f}'.format(n_fold, roc_auc_resample, roc_auc_original))
+    print('\tResampling Accuracy: {:.1f}%\t Original Accuracy: {:.1f}%'.format(np.mean(predictions_resample == y_valid)*100, np.mean(predictions_original == y_test)*100))   
 #%%
 print('Total Elapsed Time: {}'.format(datetime.now()-t0))
 
