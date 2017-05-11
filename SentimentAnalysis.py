@@ -2,27 +2,28 @@
 # Importing the Libraries
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 import sys
+from datetime import datetime
 
 # Slearn for easy label encoding, textblob for senitment reference
 from sklearn.preprocessing import LabelEncoder
 from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.model_selection import StratifiedKFold
 from sklearn.cross_validation import train_test_split
-from textblob import TextBlob
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.metrics import roc_curve, auc
 
 # Keras
 from keras.models import Sequential
 from keras.layers import Dense, Dropout
+from keras.optimizers import SGD
 
 # ML Models
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.naive_bayes import MultinomialNB
 from sklearn.utils import shuffle
 
 # NLP toolkits
 import nltk, re
-from nltk.corpus import stopwords, words
 from nltk.stem import WordNetLemmatizer, PorterStemmer
 
 #nltk.download()
@@ -30,98 +31,119 @@ import string
 
 #%% Importing the Dataset
 print('Importing Data...')
-data = pd.read_csv('D:/Kaggle/Sentiment Analysis - Dhavel/sentiment.tsv', delimiter = '\t', quoting=3)
-orig_len = len(data)
+data_original = pd.read_csv('D:/Kaggle/Sentiment Analysis - Dhavel/sentiment.tsv', delimiter = '\t', quoting=3)
+data_original_len = len(data_original)
 
-m_col = ['Sentiment', 'ID', 'Date', 'NA', 'Author', 'Tweet']
-csvdata = pd.read_csv('D:/Kaggle/Sentiment Analysis - Dhavel/training.1600000.processed.noemoticon.csv', names=m_col, encoding='ISO-8859-1')
-csvdata.drop(['ID','Date','NA','Author'], inplace=True, axis=1)
-poscsvdata = csvdata[csvdata['Sentiment'] == 4]
-negcsvdata = csvdata[csvdata['Sentiment'] == 0]
+# Bootstrapping
+col_name = ['Sentiment', 'ID', 'Date', 'NA', 'Author', 'Tweet']
+data_resample = pd.read_csv('D:/Kaggle/Sentiment Analysis - Dhavel/training.1600000.processed.noemoticon.csv', names=col_name, encoding='ISO-8859-1')
+data_resample.drop(['ID','Date','NA','Author'], inplace=True, axis=1)
+pos_resample = data_resample[data_resample['Sentiment'] == 4]
+neg_resample = data_resample[data_resample['Sentiment'] == 0]
 
-# Since sample sample is too large (800,000 samples) we choose a sample size better for our analysis
-n_samples = 10000
-poscsvdata = poscsvdata.iloc[np.random.choice(len(poscsvdata), size=n_samples)]
-negcsvdata = negcsvdata.iloc[np.random.choice(len(negcsvdata), size=n_samples)]
+n_resamples = 15000
+pos_resample = pos_resample.iloc[np.random.choice(len(pos_resample), size=n_resamples)]
+neg_resample = neg_resample.iloc[np.random.choice(len(neg_resample), size=n_resamples)]
 
 # Clear memory of large csvdata variable
-del csvdata
+del data_resample
 
 # Change values in positive senitment, 4 = pos, 0 = neg
-poscsvdata['Sentiment'] = 1
+pos_resample['Sentiment'] = 1
 
 # Use a label encoder for the sentiment column of original data
 le = LabelEncoder()
-data['Sentiment'] = le.fit_transform(data['Sentiment'])
+data_original['Sentiment'] = le.fit_transform(data_original['Sentiment'])
 
 # Concatenate 10000 samples into main dataframe
-data = pd.concat([data, poscsvdata, negcsvdata], axis=0)
-data = data.reset_index(drop=True).reset_index()
-del poscsvdata, negcsvdata
+data_resample = pd.concat([pos_resample, neg_resample], axis=0)
+data_resample = data_resample.reset_index(drop=True).reset_index()
+del pos_resample, neg_resample
 
 #%% Define our tweet 'cleaner'
-print('Cleaning Tweets...')
-
+print('Cleaning Tweets...',) # Maybe look into a spellchecker??
 count = 1
-
-def clean_tweet(twt):
+def clean_tweet(tweet, count_total):
     global count    
-    # Remove stop words
-    twt = [word for word in twt.split() if word.lower() not in stopwords.words('english')] 
+    # Remove '@' people's names
+    tweet = [word for word in tweet.split() if not word.startswith('@')]
+    tweet = [char for char in str(tweet) if char not in string.punctuation]
+    tweet = ''.join(tweet)
+    tweet = re.sub('((www\S+)|(http\S+))', 'urlsite', tweet)
+    tweet = re.sub(r'\d+', 'num', tweet)
     
-    # Remove punctuation, join letters into string
-    twt = ''.join([char for char in str(twt) if char not in string.punctuation ])    
-    
-    twt = re.sub('((www\S+)|(http\S+))', 'urlsite', twt)
-    twt = re.sub(r'\d+', 'contnum', twt)
-    
-    if count % round(len(data['Tweet'])/100) == 0:
-        sys.stdout.flush()
-        sys.stdout.write('\rCompleted: {:.0f}%'.format(count/len(data['Tweet'])*100))
+    sys.stdout.flush()
+    sys.stdout.write('\r{}/{}'.format(count, count_total))
+        #sys.stdout.write('\rCompleted: {:.0f}%'.format(count/len(data['Tweet'])*100))
     count += 1
-    return twt
+    return tweet
 
-data['Clean Tweet'] = data['Tweet'].apply(lambda x: clean_tweet(x))
-data = shuffle(data)
-X = data['Clean Tweet'].as_matrix()
-y = data['Sentiment'].as_matrix()
+data_original['Clean Tweet'] = data_original['Tweet'].apply(lambda x: clean_tweet(x, len(data_original)))
+data_resample['Clean Tweet'] = data_resample['Tweet'].apply(lambda x: clean_tweet(x, len(data_resample) + len(data_original)))
+data_resample = shuffle(data_resample)
+X_resample = data_resample['Clean Tweet']
+y_resample = data_resample['Sentiment'].as_matrix()
 
 #%% 
-cv = CountVectorizer()
-Xtrain, Xtest, ytrain, ytest = train_test_split(X, y, test_size=.20, random_state=99)
-Xtrain = cv.fit_transform(Xtrain).toarray()
-Xtest = cv.transform(Xtest).toarray()
-X_old = data[data['index'] < orig_len].sort_values('index')
-y_old = X_old['Sentiment'].as_matrix()
-X_old = X_old['Clean Tweet'].as_matrix()
-X_old = cv.transform(X_old).toarray()
+# Using original data set as additional test set
+X_original = data_original['Clean Tweet']
+y_original = data_original['Sentiment'].as_matrix()
 
 #%%
 print('\nTraining Models...')
+t0 = datetime.now()
+cv = CountVectorizer()
 
-# Training the model
-ann = Sequential()
-ann.add(Dense(2500, kernel_initializer='truncated_normal', activation='relu', input_shape=(Xtrain.shape[1],)))
-ann.add(Dropout(0.8))
-ann.add(Dense(2500, kernel_initializer='truncated_normal', activation='relu'))
-ann.add(Dropout(0.8))
-ann.add(Dense(2500, kernel_initializer='truncated_normal', activation='relu'))
-ann.add(Dropout(0.8))
-ann.add(Dense(1, kernel_initializer='truncated_normal', activation='sigmoid'))
-ann.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+kfold = StratifiedKFold(n_splits=10, shuffle=True, random_state=99)
 
-ann.fit(Xtrain, ytrain, batch_size=1500, epochs=50, verbose=1)
+n_classifier = 2
 
-predictions1 = ann.evaluate(Xtest, ytest, verbose=0)[1]
-predictions2 = ann.evaluate(X_old, y_old, verbose=0)[1]
-
+for train, valid in kfold.split(X_resample, y_resample):
+    # Separate our samples
+    X_train = X_resample[train]
+    y_train = y_resample[train]
+    X_valid = X_resample[valid]
+    y_valid = y_resample[valid]
+    
+    # Get our bag of words
+    X_train = cv.fit_transform(X_train).toarray()
+    X_valid = cv.transform(X_valid).toarray()
+    X_test = cv.transform(X_original).toarray()
+    y_test = y_original
+    
+    if n_classifier == 1:
+        # RandomForest
+        model = RandomForestClassifier(n_estimators=100, random_state=99)
+        model = model.fit(X_train, y_train)
+        
+    elif n_classifier == 2:   
+        # Multinomial NB
+        model = MultinomialNB()
+        model = model.fit(X_train, y_train)
+        
+    elif n_classifier == 3:      
+        # 3 layer Neural Network
+        model = Sequential()
+        model.add(Dense(2500, kernel_initializer='truncated_normal', activation='relu', input_shape=(X_train.shape[1],)))
+        model.add(Dropout(0.5))
+        model.add(Dense(1, kernel_initializer='truncated_normal', activation='sigmoid'))
+        model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+        
+        model.fit(X_train, y_train, batch_size=1000, epochs=5, verbose=1)
+        
+    predictions_resample = model.predict(X_valid)
+    predictions_original = model.predict(X_test)
+        
+    fpr_resample, tpr_resample, _ = roc_curve(y_valid, model.predict_proba(X_valid)[:,1])
+    roc_auc_resample = auc(fpr_resample, tpr_resample)
+    
+    fpr_original, tpr_original, _ = roc_curve(y_test, model.predict_proba(X_test)[:,1])
+    roc_auc_original = auc(fpr_original, tpr_original)
+    
+    print('Resampling AUC Score: {:.3f}, Original AUC Score: {:.3f}'.format(roc_auc_resample, roc_auc_original))
+    print('Resampling Accuracy: {:.1f}%, Original Accuracy: {:.1f}%'.format(np.mean(predictions_resample == y_valid)*100, np.mean(predictions_original == y_test)*100))   
 #%%
-print('Model Accuracy Overall: {:.1f}%, Model Accuracy Smallset: {:.1f}%'.format(predictions1*100, predictions2*100))
- #%% 
-"""
-print('Neural Network: {:.1f}%'.format(ann_score*100))      
-print('TextBlob Accuracy: {:.2f}%'.format(np.mean(data['Sentiment'] == data['TextBlob Sentiment'])*100))
+print('Total Elapsed Time: {}'.format(datetime.now()-t0))
 
-data['TextBlob Sentiment'] = (data['Tweet'].apply(lambda x: TextBlob(x).sentiment.polarity) / 2) + 0.5
-data['TextBlob Sentiment'] = data['TextBlob Sentiment'].apply(lambda x: 1 if x > 0.5 else 0)
-"""
+ #%% 
+
