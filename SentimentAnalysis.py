@@ -29,8 +29,13 @@ from nltk.stem import WordNetLemmatizer, PorterStemmer
 #nltk.download()
 import string
 
+#%%
+def to_screen(msg):
+    sys.stdout.flush
+    sys.stdout.write(msg)
+
 #%% Importing the Dataset
-print('Importing Data...')
+to_screen('Importing Data...\n')
 data_original = pd.read_csv('D:/Kaggle/Sentiment Analysis - Dhavel/sentiment.tsv', delimiter = '\t', quoting=3)
 data_original_len = len(data_original)
 
@@ -41,7 +46,7 @@ data_resample.drop(['ID','Date','NA','Author'], inplace=True, axis=1)
 pos_resample = data_resample[data_resample['Sentiment'] == 4]
 neg_resample = data_resample[data_resample['Sentiment'] == 0]
 
-n_resamples = 13000
+n_resamples = 10000
 pos_resample = pos_resample.iloc[np.random.choice(len(pos_resample), size=n_resamples)]
 neg_resample = neg_resample.iloc[np.random.choice(len(neg_resample), size=n_resamples)]
 
@@ -61,7 +66,7 @@ data_resample = data_resample.reset_index(drop=True).reset_index()
 del pos_resample, neg_resample
 
 #%% Define our tweet 'cleaner'
-print('Cleaning Tweets...',) # Maybe look into a spellchecker??
+to_screen('Cleaning Tweets...',) # Maybe look into a spellchecker??
 count = 1
 def clean_tweet(tweet, count_total):
     global count    
@@ -74,7 +79,7 @@ def clean_tweet(tweet, count_total):
     
     if count % (count_total/100) == 0:
         sys.stdout.flush()
-        sys.stdout.write('\r{:.0f}%'.format(count/count_total*100))
+        sys.stdout.write('\rCleaning Tweets... {:.0f}%'.format(count/count_total*100))
     count += 1
     return tweet
 
@@ -90,7 +95,7 @@ X_original = data_original['Clean Tweet'].as_matrix()
 y_original = data_original['Sentiment'].as_matrix()
 
 #%%
-print('\nTraining Models...')
+to_screen('\nTraining Models...\n')
 t0 = datetime.now()
 cv = CountVectorizer()
 
@@ -143,10 +148,11 @@ for train, valid in kfold.split(X_resample, y_resample):
     roc_auc_original = auc(fpr_original, tpr_original)
     
     print('__________________________________________________________________')
-    print('k-{}:\tResampling AUC Score: {:.3f}\t Original AUC Score: {:.3f}'.format(n_fold, roc_auc_resample, roc_auc_original))
-    print('\tResampling Accuracy: {:.1f}%\t Original Accuracy: {:.1f}%'.format(np.mean(predictions_resample == y_valid)*100, np.mean(predictions_original == y_test)*100))   
+    print('k-{}:\tResampling Accuracy:  {:.1f}%\t Original Accuracy:  {:.1f}%'.format(n_fold, np.mean(predictions_resample == y_valid)*100, np.mean(predictions_original == y_test)*100)) 
+    print('\tResampling AUC Score: {:.3f}\t Original AUC Score: {:.3f}'.format(roc_auc_resample, roc_auc_original))
+    
 #%%
-print('Total Elapsed Time: {}'.format(datetime.now()-t0))
+print('\nTotal Elapsed Time: {}'.format(datetime.now()-t0))
 
- #%% 
+#%% 
 
